@@ -1,0 +1,102 @@
+#!/usr/bin/python
+
+#
+# Andrew Koenig - KE5GDB - 2017
+# munin-node plugin for DPS-series HP power supplies
+#
+# Dependencies: smbus2 library
+#
+
+from smbus2 import SMBus, i2c_msg
+import time
+import sys
+
+
+if len(sys.argv) == 2 and sys.argv[1] == "config":
+	print """multigraph AC_volts
+graph_title AC Volts
+graph_vlabel volts
+graph_category Power
+ac_volts.label AC Volts
+
+multigraph AC_amps
+graph_title AC Amps
+graph_vlabel amps
+graph_category power
+ac_amps.label AC Amps
+
+multigraph DC_volts
+graph_title DC Volts
+graph_vlabel volts
+graph_category power
+dc_volts.label DC Volts
+
+multigraph DC_amps
+graph_title DC Amps
+graph_vlabel amps
+graph_category power
+dc_amps.label DC Amps
+
+multigraph Fan_speed
+graph_title Fan Speed
+graph_vlabel RPM
+graph_category power
+fan_speed.label Fan Speed (RPM)
+
+multigraph PSU_temps
+graph_title Temperatures
+graph_vlabel degC
+graph_category power
+internal_temp.label Internal Temp
+intake_temp.label Intake Temp"""
+	sys.exit()
+
+address = 0x5F
+bus = SMBus(1)
+
+def readRegister(register):
+	checksum = register + (address << 1)
+	registerChecksum = ((0xff - checksum) + 1) & 0xff
+	bytes = [register,registerChecksum]
+	write = i2c_msg.write(address, bytes)
+	read = i2c_msg.read(address, 3)
+	checksumError = True
+	count=0
+	while checksumError and count < 10:
+		bus.i2c_rdwr(write)
+		bus.i2c_rdwr(read)
+		data = list(read)
+		replyChecksum = 0
+		for d in data:
+			replyChecksum += d
+		replyChecksum = ((0xff - replyChecksum) + 1) & 0xff
+		if replyChecksum == 0:
+			checksumError = False
+		else:
+			time.sleep(.01)
+			count += 1
+			print "e"
+
+		data = data[:-1]
+		value = data[0] | (data[1] << 8)
+	return value
+
+print "multigraph AC_volts"
+print "ac_volts.value " + str(readRegister(0x08) / 32.0)
+
+print "multigraph AC_amps"
+print "ac_amps.value " + str(readRegister(0x0a) / 128.0)
+
+print "multigraph DC_volts"
+print "dc_volts.value " + str(readRegister(0x0e) / 254.5)
+
+print "multigraph DC_amps"
+print "dc_amps.value " + str(readRegister(0x10) / 128.0)
+
+print "multigraph Fan_speed"
+print "fan_speed.value " + str(readRegister(0x1e) / 1.0)
+
+print "multigraph PSU_temps"
+print "internal_temp.value " + str(readRegister(0x1c) / 32.0)
+print "intake_temp.value " + str(readRegister(0x1a) / 32.0)
+bus.close()
